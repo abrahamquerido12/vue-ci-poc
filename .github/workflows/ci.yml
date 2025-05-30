@@ -1,0 +1,38 @@
+# .github/workflows/vue-ci.yml
+
+name: Vue.js CI
+
+on:
+  push:
+    branches: [main, develop] # O las ramas que uses para CI
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build_and_test_vue:
+    name: Build and Test Vue App
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x] # Prueba con las versiones de Node que soportes
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm' # Habilitar caché para dependencias npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Paso Opcional: Linting - Descomenta si tienes un script de lint
+      # - name: Lint code
+      #   run: npm run lint
+
+      - name: Build Vue application
+        run: npm run build
