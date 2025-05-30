@@ -36,3 +36,63 @@ jobs:
 
       - name: Build Vue application
         run: npm run build
+
+  deploy_vue_to_ec2:
+    name: Deploy Vue App to EC2
+    needs: build_and_test_vue # Este job depende de que el job de CI (build_and_test_vue) sea exitoso
+    runs-on: ubuntu-latest
+    # Solo ejecuta este job en pushes a la rama 'main' (no en pull requests)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vue-dist-artifact # Nombre del artefacto que se subió en el job anterior
+          path: ./ # Descarga los artefactos. Esto creará una carpeta 'dist' en el workspace del runner
+
+      # Para depuración, ver qué se descargó
+      - name: Display structure of downloaded files
+        run: ls -R ./
+
+      - name: Prepare remote directory on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            echo "Preparing remote directory ${{ secrets.VUE_REMOTE_APP_DIR }}"
+            sudo mkdir -p ${{ secrets.VUE_REMOTE_APP_DIR }}
+            sudo chown ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} ${{ secrets.VUE_REMOTE_APP_DIR }}
+            echo "Cleaning old files from ${{ secrets.VUE_REMOTE_APP_DIR }}"
+            # Elimina el contenido del directorio, pero no el directorio en sí
+            # Cuidado con rm -rf! Asegúrate que VUE_REMOTE_APP_DIR esté bien definido.
+            if [ -d "${{ secrets.VUE_REMOTE_APP_DIR }}" ]; then
+                find ${{ secrets.VUE_REMOTE_APP_DIR }} -mindepth 1 -delete
+            fi
+            echo "Remote directory prepared."
+
+      - name: SCP files to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          port: 22
+          source: './dist/*' # Copia el *contenido* de la carpeta 'dist' local (descargada del artefacto)
+          target: '${{ secrets.VUE_REMOTE_APP_DIR }}'
+          # 'strip_components' no es necesario aquí porque 'source' termina en '/*'
+
+      - name: Verify deployment (optional)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            echo "Listing files in ${{ secrets.VUE_REMOTE_APP_DIR }} after deployment:"
+            ls -la ${{ secrets.VUE_REMOTE_APP_DIR }}
+            echo "Vue app deployment complete."
