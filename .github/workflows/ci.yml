@@ -4,7 +4,7 @@ name: Vue.js CI
 
 on:
   push:
-    branches: [main, develop] # O las ramas que uses para CI
+    branches: [main] # O las ramas que uses para CI
   pull_request:
     branches: [main, develop]
 
