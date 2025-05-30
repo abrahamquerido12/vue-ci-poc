@@ -1,10 +1,10 @@
 # .github/workflows/vue-ci.yml
 
-name: Vue.js CI
+name: Vue.js CI/CD # Cambié el nombre para reflejar que ahora hace CI y CD
 
 on:
   push:
-    branches: [main] # O las ramas que uses para CI
+    branches: [main]
   pull_request:
     branches: [main, develop]
 
@@ -12,10 +12,9 @@ jobs:
   build_and_test_vue:
     name: Build and Test Vue App
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
-        node-version: [18.x, 20.x] # Prueba con las versiones de Node que soportes
+        node-version: [20.x] # Simplificado a una versión, puedes usar [18.x, 20.x] si prefieres
 
     steps:
       - name: Checkout repository
@@ -25,35 +24,43 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm' # Habilitar caché para dependencias npm
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      # Paso Opcional: Linting - Descomenta si tienes un script de lint
       # - name: Lint code
       #   run: npm run lint
 
       - name: Build Vue application
-        run: npm run build
+        run: npm run build # Esto crea la carpeta 'dist'
+
+      - name: List contents of dist directory # Para depurar y ver qué se construyó
+        run: ls -R ./dist || echo "Directorio dist no encontrado o vacío"
+
+      # --- PASO FALTANTE AÑADIDO AQUÍ ---
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vue-dist-artifact # El nombre DEBE COINCIDIR con el que usa el job de deploy
+          path: ./dist # Sube el contenido de la carpeta 'dist'
+      # --- FIN DEL PASO AÑADIDO ---
 
   deploy_vue_to_ec2:
     name: Deploy Vue App to EC2
-    needs: build_and_test_vue # Este job depende de que el job de CI (build_and_test_vue) sea exitoso
+    needs: build_and_test_vue
     runs-on: ubuntu-latest
-    # Solo ejecuta este job en pushes a la rama 'main' (no en pull requests)
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: vue-dist-artifact # Nombre del artefacto que se subió en el job anterior
-          path: ./ # Descarga los artefactos. Esto creará una carpeta 'dist' en el workspace del runner
+          name: vue-dist-artifact # Nombre del artefacto a descargar
+          path: ./dist # Descarga el contenido del artefacto a una carpeta 'dist' en el workspace
 
-      # Para depuración, ver qué se descargó
-      - name: Display structure of downloaded files
-        run: ls -R ./
+      - name: Display structure of downloaded dist folder # Modificado para ser más específico
+        run: ls -R ./dist || echo "Directorio dist descargado no encontrado o vacío"
 
       - name: Prepare remote directory on EC2
         uses: appleboy/ssh-action@v1.0.3
@@ -67,10 +74,9 @@ jobs:
             sudo mkdir -p ${{ secrets.VUE_REMOTE_APP_DIR }}
             sudo chown ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} ${{ secrets.VUE_REMOTE_APP_DIR }}
             echo "Cleaning old files from ${{ secrets.VUE_REMOTE_APP_DIR }}"
-            # Elimina el contenido del directorio, pero no el directorio en sí
-            # Cuidado con rm -rf! Asegúrate que VUE_REMOTE_APP_DIR esté bien definido.
             if [ -d "${{ secrets.VUE_REMOTE_APP_DIR }}" ]; then
-                find ${{ secrets.VUE_REMOTE_APP_DIR }} -mindepth 1 -delete
+              # Elimina solo archivos y subdirectorios dentro, no el directorio padre
+              sudo find ${{ secrets.VUE_REMOTE_APP_DIR }} -mindepth 1 -delete 
             fi
             echo "Remote directory prepared."
 
@@ -81,9 +87,8 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           port: 22
-          source: './dist/*' # Copia el *contenido* de la carpeta 'dist' local (descargada del artefacto)
+          source: './dist/*' # Copia el contenido de la carpeta 'dist' local
           target: '${{ secrets.VUE_REMOTE_APP_DIR }}'
-          # 'strip_components' no es necesario aquí porque 'source' termina en '/*'
 
       - name: Verify deployment (optional)
         uses: appleboy/ssh-action@v1.0.3
